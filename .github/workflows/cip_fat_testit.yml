@@ -1,0 +1,41 @@
+name: CIP OPC UA FAT-testit
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  fat-testit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Hae koodi
+        uses: actions/checkout@v4
+
+      - name: Asenna Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Asenna riippuvuudet
+        run: |
+          python -m pip install --upgrade pip
+          pip install asyncua robotframework
+
+      - name: Kaynnista virtuaalinen PLC ja aja FAT-testit
+        run: |
+          python cip_plc_simulaattori.py &
+          sleep 2
+          robot testaa_cip.robot
+
+      - name: Tallenna FAT-testiraportit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cip-fat-raportit
+          path: |
+            report.html
+            log.html
+            output.xml
