@@ -1,34 +1,64 @@
-# CIP-prosessin PLC-simulaattori & OPC UA -testiautomaatio
+# CIP-pesuaseman automaatio ja FAT-testaus (ISA-88)
 
-![CIP OPC UA FAT-testit](https://github.com/Laolli735/plc-iot-simulaattori/actions/workflows/cip_fat_testit.yml/badge.svg?branch=main)
+Tämä projekti demonstroi teollisuusautomaation ohjelmistokehitystä ja automaattista toimintatestausta (FAT). Projekti yhdistää **CODESYS V3.5 (Structured Text)** -logiikan, **OPC UA** -tiedonsiirron sekä **Robot Framework** -testiautomaation.
 
-Teollisuusautomaation (PLC) ja automaattisen tehdastestauksen (FAT) integraatioprojekti. Projekti mallintaa elintarvike- ja prosessiteollisuudesta tutun **CIP-pesuaseman (Clean-in-Place)** tilakoneen Pythonilla, julkaisee sen rajapinnat **OPC UA** -palvelimena ja varmistaa prosessin sekä turvalukitusten toiminnan **Robot Framework** -testeillä CI/CD-putkessa.
+---
 
-## Arkkitehtuuri ja tilakone
+## Arkkitehtuuri
 
-Simulaattori (`cip_plc_simulaattori.py`) ajaa 500 ms logiikkasykliä ja noudattaa ISA-88 / IEC 61131-3 -tyyppistä tilakonemallia:
+* **PLC-ohjaus (CODESYS):** ISA-88-standardin mukainen tilakone CIP-pesusyklille (esihuuhtelu, lipeäpesu, loppuhuuhtelu ja hätäpysäytys).
+* **Versiohallinta:** CODESYS-projekti on viety avoimeen `PLCopenXML`-muotoon, jotta logiikkamuutokset ovat luettavissa suoraan Gitissä.
+* **Testiautomaatio (Robot Framework + Python):** `asyncua`-kirjastoon pohjautuva rajapinta, joka ohjaa ja varmentaa prosessin tilat OPC UA:n yli.
+* **Simulaatioympäristö (`sim`):** Kevyt Python-pohjainen OPC UA -palvelin, joka mahdollistaa testien ajamisen ilman fyysistä PLC-laitteistoa (esim. CI/CD-putkessa).
+
+---
+
+## Projektin rakenne
 
 ```text
-[ 0: IDLE (Valmiustila) ]
-       │  (Cmd_Start = True)
-       ▼
-[ 1: PRE_RINSE (Esihuuhtelu) ] ──► Pumppu ON, lämmitys -> 40 °C (3 s)
-       │
-       ▼
-[ 2: CAUSTIC_WASH (Lipeäpesu) ] ──► Lipeäventtiili ON, lämmitys -> 75 °C, johtokyky -> 45 mS/cm
-       │
-       ▼
-[ 3: FINAL_RINSE (Loppuhuuhtelu) ] ──► Lipeäventtiili OFF, huuhtelu kunnes johtokyky <= 2.0 mS/cm
-       │
-       └───────────────────────────► Paluu tilaan 0 (IDLE)
+plc-iot-simulaattori/
+├── plc/                  # CODESYS-projektitiedostot ja PLCopenXML-vienti
+├── sim/                  # Python-pohjainen CIP-prosessisimulaattori
+├── OpcUaKeywords.py      # Robot Frameworkin OPC UA -avainsanakirjasto
+├── testaa_cip.robot      # Automaattiset FAT-testitapaukset
+└── README.md             # Projektin dokumentaatio
 
-* Turvalukitus: Cmd_EStop = True keskeyttää minkä tahansa vaiheen välittömästi tilaan [ 99: ALARM / E-STOP ].
-Tagi (Node),Tyyppi,Oikeudet,Kuvaus
-Cmd_Start,Boolean,Read / Write,Käynnistyspulssi pesuohjelmalle
-Cmd_EStop,Boolean,Read / Write,Hätäpysäytys- ja turvalukitustieto
-Step_ID,Int64,Read-only,"Aktiivisen tilakonevaiheen numero (0, 1, 2, 3, 99)"
-Step_Name,String,Read-only,Aktiivisen vaiheen selkokielinen nimi
-Temperature_C,Double,Read-only,Pesuliuoksen lämpötila (°C)
-Conductivity_mScm,Double,Read-only,Paluulinjan sähkönjohtokyky (mS/cm)
-Pump_Running,Boolean,Read-only,Kiertovesipumpun käyntitieto
-Caustic_Valve_Open,Boolean,Read-only,Lipeäannosteluventtiilin tila
+Käyttöönotto ja testien ajo
+1. Riippuvuuksien asennus
+pip install robotframework asyncua
+
+2. Testien ajo simulaattoria vasten (oletus)
+Käynnistä ensimmäisessä terminaalissa simulaattori:
+PowerShell
+python sim/cip_simulaattori.py
+
+Aja toisessa terminaalissa Robot Framework -testit:
+PowerShell
+$env:PLC_TARGET="sim"
+robot testaa_cip.robot
+
+3. Testien ajo CODESYS-ohjainta vasten
+PowerShell
+$env:PLC_TARGET="codesys"
+robot testaa_cip.robot
+
+Testatut toiminnallisuudet         
+Testitapaus                               Kuvaus                                      Odotettu tulos       
+CIP Pesusyklin Normaalitoiminta           Käynnistää pesusyklin ja                    Pesu etenee tilojen läpi ja
+                                          seuraa vaiheiden etenemistä                 palautuu valmiustilaan
+
+Hätäpysäytys (Estop)                      Aktivoi hätäpysäytyksen                     Venttiilit ja pumput sulkeutuvat
+                                          kesken pesuvaiheen                          välittömästi
+
+Jatkokehitys (Future Improvements)
+Seuraavat FAT-testitapaukset ja ominaisuudet on tunnistettu luonteviksi laajennuksiksi tuotantotason validointiin:
+
+Prosessilukitukset (Interlocks): Käynnistyksen eston varmentaminen tilanteissa, joissa pesuainesäiliön pinta on liian matala, huuhteluvesi puuttuu tai linjaventtiili on väärässä asennossa.
+
+Prosessiparametrien poikkeamat: Lipeäpesun lämpötilan laskun tai virtauksen katkeamisen simulointi kesken pesun (pesuvaiheen ajastimen pysäytys / siirtyminen HOLDING-tilaan, kunnes arvot palautuvat).
+
+Täysi ISA-88-tilahallinta (Hold / Restart / Reset): Keskeytys- ja jatkamiskomentojen testaus sekä varmistus siitä, että hätäpysäytyksen vapauttaminen vaatii erillisen kuittauksen (Reset) ennen paluuta IDLE-tilaan.
+
+Aikakatkaisut ja laiteviat (Watchdog / Timeout): Venttiilien rajakytkinten tai säiliön täyttöajan aikakatkaisuhälytysten testaus laiterikkojen ehkäisemiseksi.
+
+CI/CD-automaatio (GitHub Actions): Robot Framework -testisarjan automaattinen suoritus simulaattoria vasten jokaisen push- ja pull request -tapahtuman yhteydessä.                                            
